@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
 const FormData = require('form-data');
+const sharp = require('sharp');
 
 // Inisialisasi Discord client
 const client = new Client({
@@ -24,6 +25,77 @@ if (!DISCORD_TOKEN || !FIVEMANAGE_TOKEN) {
     process.exit(1);
 }
 
+// Fungsi compress gambar
+async function compressImage(imageBuffer, fileName) {
+    const originalSize = imageBuffer.length;
+    console.log(`📦 Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
+    
+    // Deteksi format gambar dari nama file
+    const ext = fileName.toLowerCase().split('.').pop();
+    let compressedBuffer;
+    
+    try {
+        const image = sharp(imageBuffer);
+        const metadata = await image.metadata();
+        
+        // Target: kompress minimal 30%
+        // Quality setting: 70 biasanya kasih kompresi ~40-50%
+        if (ext === 'png') {
+            compressedBuffer = await image
+                .png({ 
+                    quality: 70,
+                    compressionLevel: 9,
+                    effort: 10
+                })
+                .toBuffer();
+        } else if (ext === 'webp') {
+            compressedBuffer = await image
+                .webp({ quality: 70 })
+                .toBuffer();
+        } else {
+            // JPG/JPEG atau format lain convert ke JPEG
+            compressedBuffer = await image
+                .jpeg({ 
+                    quality: 70,
+                    mozjpeg: true 
+                })
+                .toBuffer();
+        }
+        
+        const compressedSize = compressedBuffer.length;
+        const reduction = ((originalSize - compressedSize) / originalSize * 100).toFixed(1);
+        
+        console.log(`✅ Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`📉 Size reduced by: ${reduction}%`);
+        
+        // Jika kompresi kurang dari 30%, coba lebih agresif
+        if (reduction < 30) {
+            console.log(`⚠️ Kompresi kurang dari 30%, trying aggressive compression...`);
+            const image2 = sharp(imageBuffer);
+            
+            if (ext === 'png') {
+                compressedBuffer = await image2
+                    .png({ quality: 50, compressionLevel: 9 })
+                    .toBuffer();
+            } else {
+                compressedBuffer = await image2
+                    .jpeg({ quality: 50, mozjpeg: true })
+                    .toBuffer();
+            }
+            
+            const newSize = compressedBuffer.length;
+            const newReduction = ((originalSize - newSize) / originalSize * 100).toFixed(1);
+            console.log(`✅ Final compressed: ${(newSize / 1024 / 1024).toFixed(2)} MB (${newReduction}% reduced)`);
+        }
+        
+        return compressedBuffer;
+        
+    } catch (error) {
+        console.error('⚠️ Compression error, using original:', error.message);
+        return imageBuffer; // Fallback ke original jika gagal
+    }
+}
+
 // Fungsi upload ke FiveManage dengan retry
 async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -36,17 +108,26 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
                 timeout: 30000 // 30 detik timeout
             });
 
-            // Check ukuran file (FiveManage limit biasanya 10MB)
-            const fileSizeMB = response.data.length / (1024 * 1024);
-            console.log(`File size: ${fileSizeMB.toFixed(2)} MB`);
+            // Compress gambar sebelum upload
+            console.log(`🔄 Compressing ${fileName}...`);
+            const compressedImage = await compressImage(response.data, fileName);
+
+            // Check ukuran file setelah kompresi (FiveManage limit biasanya 10MB)
+            const fileSizeMB = compressedImage.length / (1024 * 1024);
             
             if (fileSizeMB > 10) {
-                throw new Error('File terlalu besar (max 10MB)');
+                throw new Error('File terlalu besar (max 10MB) even after compression');
             }
 
-            // Buat form data
+            // Buat form data dengan gambar yang sudah dikompres
             const formData = new FormData();
-            formData.append('file', Buffer.from(response.data), fileName);
+            formData.append('file', compressedImage, fileName);
+            
+            // Tambahkan metadata untuk exempt from retention
+            formData.append('metadata', JSON.stringify({
+                name: fileName,
+                exemptFromRetention: true
+            }));
 
             // Upload ke FiveManage dengan timeout lebih panjang
             const uploadResponse = await axios.post(
@@ -143,7 +224,7 @@ client.on('messageCreate', async (message) => {
 
         // Reply dengan link hasil upload
         await message.reply({
-            content: `**📤 Gambar berhasil diupload ke FiveManage:**\n${uploadedUrls.join('\n')}`,
+            content: `**Gambar berhasil diupload:**\n${uploadedUrls.join('\n')}`,
             allowedMentions: { repliedUser: false }
         });
 

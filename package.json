@@ -7,14 +7,20 @@
     "start": "node index.js",
     "dev": "node index.js"
   },
-  "keywords": ["discord", "bot", "fivemanage", "image-upload"],
+  "keywords": [
+    "discord",
+    "bot",
+    "fivemanage",
+    "image-upload"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.14.1",
     "axios": "^1.6.5",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.1",
     "form-data": "^4.0.0",
-    "dotenv": "^16.4.1"
+    "sharp": "^0.34.5"
   },
   "engines": {
     "node": ">=18.x"
