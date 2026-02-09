@@ -1,0 +1,162 @@
+require('dotenv').config();
+const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const axios = require('axios');
+const FormData = require('form-data');
+
+// Inisialisasi Discord client
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+    ]
+});
+
+// Konfigurasi
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const FIVEMANAGE_TOKEN = process.env.FIVEMANAGE_TOKEN;
+const CHANNEL_ID = process.env.CHANNEL_ID || null;
+const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/image';
+
+// Validasi environment variables
+if (!DISCORD_TOKEN || !FIVEMANAGE_TOKEN) {
+    console.error('❌ Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
+    process.exit(1);
+}
+
+// Fungsi upload ke FiveManage dengan retry
+async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            console.log(`Attempt ${attempt}/${retries} for ${fileName}`);
+            
+            // Download gambar dari Discord dengan timeout
+            const response = await axios.get(imageUrl, {
+                responseType: 'arraybuffer',
+                timeout: 30000 // 30 detik timeout
+            });
+
+            // Check ukuran file (FiveManage limit biasanya 10MB)
+            const fileSizeMB = response.data.length / (1024 * 1024);
+            console.log(`File size: ${fileSizeMB.toFixed(2)} MB`);
+            
+            if (fileSizeMB > 10) {
+                throw new Error('File terlalu besar (max 10MB)');
+            }
+
+            // Buat form data
+            const formData = new FormData();
+            formData.append('file', Buffer.from(response.data), fileName);
+
+            // Upload ke FiveManage dengan timeout lebih panjang
+            const uploadResponse = await axios.post(
+                FIVEMANAGE_ENDPOINT,
+                formData,
+                {
+                    headers: {
+                        ...formData.getHeaders(),
+                        'Authorization': FIVEMANAGE_TOKEN
+                    },
+                    timeout: 120000, // 2 menit timeout untuk file besar
+                    maxBodyLength: Infinity,
+                    maxContentLength: Infinity
+                }
+            );
+
+            // Response format: { data: { id, url }, status: "ok" }
+            if (uploadResponse.data.status === 'ok' && uploadResponse.data.data?.url) {
+                return uploadResponse.data.data.url;
+            }
+            
+            throw new Error('Invalid response format from FiveManage');
+            
+            
+        } catch (error) {
+            const isLastAttempt = attempt === retries;
+            
+            // Log error details
+            if (error.response) {
+                console.error(`Error ${error.response.status}:`, error.response.data);
+            } else if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+                console.error(`Network error (${error.code}):`, error.message);
+            } else {
+                console.error('Error:', error.message);
+            }
+            
+            // Jika masih ada attempt, tunggu sebentar sebelum retry
+            if (!isLastAttempt) {
+                const waitTime = attempt * 2000; // 2s, 4s, 6s...
+                console.log(`Waiting ${waitTime/1000}s before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            } else {
+                throw error; // Throw di attempt terakhir
+            }
+        }
+    }
+}
+
+// Event: Bot ready
+client.on('ready', () => {
+    console.log('✅ Bot siap!');
+    console.log(`📱 Logged in as ${client.user.tag}`);
+    if (CHANNEL_ID) {
+        console.log(`📍 Monitoring channel ID: ${CHANNEL_ID}`);
+    } else {
+        console.log('📍 Monitoring semua channel');
+    }
+});
+
+// Event: Message create
+client.on('messageCreate', async (message) => {
+    // Ignore bot messages
+    if (message.author.bot) return;
+
+    // Check channel ID jika diset
+    if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
+
+    // Check apakah ada attachment gambar
+    const imageAttachments = message.attachments.filter(attachment =>
+        attachment.contentType && attachment.contentType.startsWith('image/')
+    );
+
+    if (imageAttachments.size === 0) return;
+
+    // React untuk menandakan sedang memproses
+    await message.react('⏳');
+
+    try {
+        const uploadedUrls = [];
+
+        // Upload setiap gambar
+        for (const [id, attachment] of imageAttachments) {
+            console.log(`📤 Uploading: ${attachment.name}`);
+            const uploadedUrl = await uploadToFiveManage(attachment.url, attachment.name);
+            uploadedUrls.push(`• [${attachment.name}](${uploadedUrl})`);
+            console.log(`✅ Uploaded: ${uploadedUrl}`);
+        }
+
+        // Remove processing reaction
+        await message.reactions.removeAll();
+
+        // React dengan checkmark
+        await message.react('✅');
+
+        // Reply dengan link hasil upload
+        await message.reply({
+            content: `**📤 Gambar berhasil diupload ke FiveManage:**\n${uploadedUrls.join('\n')}`,
+            allowedMentions: { repliedUser: false }
+        });
+
+    } catch (error) {
+        console.error('Error:', error);
+        await message.reactions.removeAll();
+        await message.react('❌');
+        await message.reply({
+            content: '❌ Gagal upload gambar ke FiveManage. Cek console untuk detail error.',
+            allowedMentions: { repliedUser: false }
+        });
+    }
+});
+
+// Login bot
+client.login(DISCORD_TOKEN);
