@@ -212,21 +212,22 @@ client.on('messageCreate', async (message) => {
         for (const [id, attachment] of imageAttachments) {
             console.log(`📤 Uploading: ${attachment.name}`);
             const uploadedUrl = await uploadToFiveManage(attachment.url, attachment.name);
-            uploadedUrls.push(`• [${attachment.name}](${uploadedUrl})`);
+            uploadedUrls.push(uploadedUrl);
             console.log(`✅ Uploaded: ${uploadedUrl}`);
         }
 
         // Remove processing reaction
         await message.reactions.removeAll();
 
-        // React dengan checkmark
-        await message.react('✅');
+        // Hapus pesan original dari user
+        await message.delete();
 
-        // Reply dengan link hasil upload
-        await message.reply({
-            content: `**Gambar berhasil diupload:**\n${uploadedUrls.join('\n')}`,
-            allowedMentions: { repliedUser: false }
-        });
+        // Send pesan baru dengan format sederhana
+        const uploadMessages = uploadedUrls.map(url => 
+            `**Gambar berhasil diupload** (${message.author.username})\nURL: ${url}`
+        ).join('\n\n');
+        
+        await message.channel.send(uploadMessages);
 
     } catch (error) {
         console.error('Error:', error);
