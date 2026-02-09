@@ -17,12 +17,46 @@ const client = new Client({
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const FIVEMANAGE_TOKEN = process.env.FIVEMANAGE_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID || null;
-const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/image';
+const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
+
+// Secondary API configuration
+const SECONDARY_TOKEN = process.env.SECONDARY_TOKEN;
+const SECONDARY_ENDPOINT = process.env.SECONDARY_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
+const STORAGE_LIMIT_GB = parseFloat(process.env.STORAGE_LIMIT_GB || 10);
+const STORAGE_THRESHOLD_GB = parseFloat(process.env.STORAGE_THRESHOLD_GB || 9.8);
+
+// Storage tracking
+let currentStorageGB = 0;
+let useSecondary = false;
 
 // Validasi environment variables
 if (!DISCORD_TOKEN || !FIVEMANAGE_TOKEN) {
     console.error('❌ Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
     process.exit(1);
+}
+
+// Fungsi check storage usage FiveManage
+async function checkStorageUsage(token) {
+    try {
+        // FiveManage API untuk cek storage (jika ada endpoint-nya)
+        // Karena belum ada official endpoint, kita track secara manual
+        return currentStorageGB;
+    } catch (error) {
+        console.error('⚠️ Error checking storage:', error.message);
+        return currentStorageGB;
+    }
+}
+
+// Fungsi untuk track file size yang diupload
+function trackUploadSize(fileSizeMB) {
+    currentStorageGB += fileSizeMB / 1024;
+    console.log(`📊 Total storage used: ${currentStorageGB.toFixed(2)} GB / ${STORAGE_LIMIT_GB} GB`);
+    
+    // Auto-switch ke secondary jika hampir penuh
+    if (currentStorageGB >= STORAGE_THRESHOLD_GB && !useSecondary && SECONDARY_TOKEN) {
+        console.log(`⚠️ Storage threshold reached! Switching to secondary API...`);
+        useSecondary = true;
+    }
 }
 
 // Fungsi compress gambar
@@ -96,11 +130,23 @@ async function compressImage(imageBuffer, fileName) {
     }
 }
 
-// Fungsi upload ke FiveManage dengan retry
+// Fungsi upload ke FiveManage dengan retry dan auto-fallback
 async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
+    // Pilih API berdasarkan storage status
+    let apiToken = FIVEMANAGE_TOKEN;
+    let apiEndpoint = FIVEMANAGE_ENDPOINT;
+    let apiLabel = 'Primary';
+    
+    if (useSecondary && SECONDARY_TOKEN) {
+        apiToken = SECONDARY_TOKEN;
+        apiEndpoint = SECONDARY_ENDPOINT;
+        apiLabel = 'Secondary';
+        console.log(`🔄 Using secondary API`);
+    }
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            console.log(`Attempt ${attempt}/${retries} for ${fileName}`);
+            console.log(`Attempt ${attempt}/${retries} for ${fileName} [${apiLabel} API]`);
             
             // Download gambar dari Discord dengan timeout
             const response = await axios.get(imageUrl, {
@@ -131,12 +177,12 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
 
             // Upload ke FiveManage dengan timeout lebih panjang
             const uploadResponse = await axios.post(
-                FIVEMANAGE_ENDPOINT,
+                apiEndpoint,
                 formData,
                 {
                     headers: {
                         ...formData.getHeaders(),
-                        'Authorization': FIVEMANAGE_TOKEN
+                        'Authorization': apiToken
                     },
                     timeout: 120000, // 2 menit timeout untuk file besar
                     maxBodyLength: Infinity,
@@ -146,6 +192,10 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
 
             // Response format: { data: { id, url }, status: "ok" }
             if (uploadResponse.data.status === 'ok' && uploadResponse.data.data?.url) {
+                // Track storage usage
+                trackUploadSize(fileSizeMB);
+                
+                console.log(`✅ Uploaded to ${apiLabel} API: ${uploadResponse.data.data.url}`);
                 return uploadResponse.data.data.url;
             }
             
@@ -184,6 +234,12 @@ client.on('ready', () => {
         console.log(`📍 Monitoring channel ID: ${CHANNEL_ID}`);
     } else {
         console.log('📍 Monitoring semua channel');
+    }
+    console.log(`📊 Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
+    if (SECONDARY_TOKEN) {
+        console.log(`🔄 Secondary API configured (will auto-switch at ${STORAGE_THRESHOLD_GB} GB)`);
+    } else {
+        console.log(`⚠️ No secondary API configured`);
     }
 });
 
