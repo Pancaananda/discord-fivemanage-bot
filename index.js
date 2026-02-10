@@ -36,7 +36,7 @@ let useSecondary = false;
 
 // Validasi environment variables
 if (!DISCORD_TOKEN || !FIVEMANAGE_TOKEN) {
-    console.error('❌ Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
+    console.error(' Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
     process.exit(1);
 }
 
@@ -47,7 +47,7 @@ async function checkStorageUsage(token) {
         // Karena belum ada official endpoint, kita track secara manual
         return currentStorageGB;
     } catch (error) {
-        console.error('⚠️ Error checking storage:', error.message);
+        console.error(' Error checking storage:', error.message);
         return currentStorageGB;
     }
 }
@@ -59,7 +59,7 @@ function trackUploadSize(fileSizeMB) {
     
     // Auto-switch ke secondary jika hampir penuh
     if (currentStorageGB >= STORAGE_THRESHOLD_GB && !useSecondary && SECONDARY_TOKEN) {
-        console.log(`⚠️ Storage threshold reached! Switching to secondary API...`);
+        console.log(` Storage threshold reached! Switching to secondary API...`);
         useSecondary = true;
     }
 }
@@ -67,7 +67,7 @@ function trackUploadSize(fileSizeMB) {
 // Fungsi compress gambar
 async function compressImage(imageBuffer, fileName) {
     const originalSize = imageBuffer.length;
-    console.log(`📦 Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
+    console.log(` Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
     
     // Deteksi format gambar dari nama file
     const ext = fileName.toLowerCase().split('.').pop();
@@ -104,8 +104,8 @@ async function compressImage(imageBuffer, fileName) {
         const compressedSize = compressedBuffer.length;
         const reduction = ((originalSize - compressedSize) / originalSize * 100).toFixed(1);
         
-        console.log(`✅ Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`📉 Size reduced by: ${reduction}%`);
+        console.log(` Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+        console.log(` Size reduced by: ${reduction}%`);
         
         // Jika kompresi kurang dari 30%, coba lebih agresif
         if (reduction < 30) {
@@ -124,13 +124,13 @@ async function compressImage(imageBuffer, fileName) {
             
             const newSize = compressedBuffer.length;
             const newReduction = ((originalSize - newSize) / originalSize * 100).toFixed(1);
-            console.log(`✅ Final compressed: ${(newSize / 1024 / 1024).toFixed(2)} MB (${newReduction}% reduced)`);
+            console.log(` Final compressed: ${(newSize / 1024 / 1024).toFixed(2)} MB (${newReduction}% reduced)`);
         }
         
         return compressedBuffer;
         
     } catch (error) {
-        console.error('⚠️ Compression error, using original:', error.message);
+        console.error(' Compression error, using original:', error.message);
         return imageBuffer; // Fallback ke original jika gagal
     }
 }
@@ -146,7 +146,7 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
         apiToken = SECONDARY_TOKEN;
         apiEndpoint = SECONDARY_ENDPOINT;
         apiLabel = 'Secondary';
-        console.log(`🔄 Using secondary API`);
+        console.log(` Using secondary API`);
     }
     
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -160,7 +160,7 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
             });
 
             // Compress gambar sebelum upload
-            console.log(`🔄 Compressing ${fileName}...`);
+            console.log(` Compressing ${fileName}...`);
             const compressedImage = await compressImage(response.data, fileName);
 
             // Check ukuran file setelah kompresi (FiveManage limit biasanya 10MB)
@@ -233,23 +233,23 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
 
 // Event: Bot ready
 client.on('ready', () => {
-    console.log('✅ Bot siap!');
-    console.log(`📱 Logged in as ${client.user.tag}`);
+    console.log(' Bot siap!');
+    console.log(`Logged in as ${client.user.tag}`);
     if (CHANNEL_ID) {
-        console.log(`📍 Monitoring channel ID: ${CHANNEL_ID}`);
+        console.log(` Monitoring channel ID: ${CHANNEL_ID}`);
     } else {
-        console.log('📍 Monitoring semua channel');
+        console.log('Monitoring semua channel');
     }
-    console.log(`📊 Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
+    console.log(` Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
     if (SECONDARY_TOKEN) {
-        console.log(`🔄 Secondary API configured (will auto-switch at ${STORAGE_THRESHOLD_GB} GB)`);
+        console.log(`Secondary API configured (will auto-switch at ${STORAGE_THRESHOLD_GB} GB)`);
     } else {
-        console.log(`⚠️ No secondary API configured`);
+        console.log(` No secondary API configured`);
     }
     if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
-        console.log(`🔒 Role whitelist enabled (${ALLOWED_ROLES.length} roles allowed)`);
+        console.log(` Role whitelist enabled (${ALLOWED_ROLES.length} roles allowed)`);
     } else {
-        console.log(`🌐 No role restriction (all users can upload)`);
+        console.log(` No role restriction (all users can upload)`);
     }
 });
 
@@ -280,7 +280,7 @@ client.on('messageCreate', async (message) => {
         if (!hasAllowedRole) {
             await message.react('❌');
             await message.reply({
-                content: '❌ Anda tidak memiliki permission untuk upload gambar. Hubungi admin untuk mendapatkan role yang sesuai.',
+                content: '❌ Anda tidak memiliki permission untuk upload gambar.',
                 allowedMentions: { repliedUser: false }
             });
             return;
