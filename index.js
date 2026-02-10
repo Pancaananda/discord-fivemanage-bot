@@ -135,6 +135,51 @@ async function compressImage(imageBuffer, fileName) {
     }
 }
 
+// Fungsi untuk detect file type dari magic bytes
+function detectFileType(buffer) {
+    const header = buffer.slice(0, 12);
+    
+    // Check video signatures (MP4, WebM, AVI, etc)
+    if (header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && header[7] === 0x70) {
+        return 'video'; // MP4 signature: "ftyp"
+    }
+    if (header[0] === 0x1A && header[1] === 0x45 && header[2] === 0xDF && header[3] === 0xA3) {
+        return 'video'; // WebM/MKV signature
+    }
+    if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
+        header[8] === 0x41 && header[9] === 0x56 && header[10] === 0x49) {
+        return 'video'; // AVI signature
+    }
+    
+    // Check audio signatures
+    if (header[0] === 0xFF && (header[1] & 0xE0) === 0xE0) {
+        return 'audio'; // MP3 signature
+    }
+    if (header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33) {
+        return 'audio'; // MP3 with ID3
+    }
+    if (header[0] === 0x4F && header[1] === 0x67 && header[2] === 0x67 && header[3] === 0x53) {
+        return 'audio'; // OGG signature
+    }
+    
+    // Check image signatures
+    if (header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF) {
+        return 'image'; // JPEG
+    }
+    if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47) {
+        return 'image'; // PNG
+    }
+    if (header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46) {
+        return 'image'; // GIF
+    }
+    if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
+        header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50) {
+        return 'image'; // WebP
+    }
+    
+    return 'unknown';
+}
+
 // Fungsi upload ke FiveManage dengan retry dan auto-fallback
 async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
     // Pilih API berdasarkan storage status
@@ -158,6 +203,15 @@ async function uploadToFiveManage(imageUrl, fileName, retries = 3) {
                 responseType: 'arraybuffer',
                 timeout: 30000 // 30 detik timeout
             });
+            
+            // Detect actual file type from magic bytes
+            const fileType = detectFileType(response.data);
+            console.log(` Detected file type: ${fileType}`);
+            
+            // Block video files
+            if (fileType === 'video') {
+                throw new Error('Video files are not allowed (detected by file signature)');
+            }
 
             // Compress gambar sebelum upload
             console.log(` Compressing ${fileName}...`);
@@ -347,11 +401,18 @@ client.on('messageCreate', async (message) => {
     } catch (error) {
         console.error('Error:', error);
         await message.reactions.removeAll();
-        await message.react('❌');
-        await message.reply({
-            content: '❌ Gagal upload media ke FiveManage. Cek console untuk detail error.',
-            allowedMentions: { repliedUser: false }
-        });
+        
+        // Check if it's a disguised video file
+        if (error.message && error.message.includes('Video files are not allowed')) {
+            await message.delete();
+            await message.channel.send(`❌ **FILE VIDEO TERDETEKSI!** (${message.author.username})\nFile yang diupload adalah video meskipun ekstensinya bukan video.\nHanya boleh: Foto asli, GIF, dan Audio asli.`);
+        } else {
+            await message.react('❌');
+            await message.reply({
+                content: '❌ Gagal upload media ke FiveManage. Cek console untuk detail error.',
+                allowedMentions: { repliedUser: false }
+            });
+        }
     }
 });
 
