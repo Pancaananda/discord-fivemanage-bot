@@ -315,30 +315,37 @@ client.on('messageCreate', async (message) => {
     // Check channel ID jika diset
     if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
 
-    // Filter attachments: image, audio, gif - TIDAK termasuk video
+    // Filter attachments: HANYA IMAGE (termasuk GIF)
+    // FiveManage API /v2/image HANYA support image, tidak support audio/video
     const allowedAttachments = message.attachments.filter(attachment => {
         if (!attachment.contentType) return false;
         
         const contentType = attachment.contentType.toLowerCase();
         
-        // Allow: image (termasuk gif), audio
-        const isImage = contentType.startsWith('image/');
-        const isAudio = contentType.startsWith('audio/');
-        
-        // Block: video
-        const isVideo = contentType.startsWith('video/');
-        
-        return (isImage || isAudio) && !isVideo;
+        // Allow: HANYA image (termasuk gif)
+        return contentType.startsWith('image/');
     });
 
-    // Jika ada video, tolak
+    // Check apakah ada video atau audio yang di-upload
     const hasVideo = message.attachments.some(attachment =>
         attachment.contentType && attachment.contentType.toLowerCase().startsWith('video/')
     );
     
+    const hasAudio = message.attachments.some(attachment =>
+        attachment.contentType && attachment.contentType.toLowerCase().startsWith('audio/')
+    );
+    
+    // Tolak video
     if (hasVideo) {
         await message.delete();
-        await message.channel.send(`❌ **VIDEO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nHanya boleh: Foto, GIF, dan Audio`);
+        await message.channel.send(`❌ **VIDEO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nHanya boleh: Foto dan GIF`);
+        return;
+    }
+    
+    // Tolak audio (FiveManage tidak support)
+    if (hasAudio) {
+        await message.delete();
+        await message.channel.send(`❌ **AUDIO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nFiveManage hanya support upload Foto dan GIF.\nHanya boleh: Foto dan GIF`);
         return;
     }
 
@@ -347,7 +354,7 @@ client.on('messageCreate', async (message) => {
         // Hapus message dan kasih warning
         await message.delete();
         await message.channel.send(
-            `**NO NO YA DISINI BUKAN TEMPAT CHAT HANYA BOLEH KASIH FOTO, GIF DAN AUDIO YA**\n(${message.author.username})`
+            `**NO NO YA DISINI BUKAN TEMPAT CHAT HANYA BOLEH KASIH FOTO DAN GIF YA**\n(${message.author.username})`
         );
         return;
     }
@@ -377,7 +384,7 @@ client.on('messageCreate', async (message) => {
     try {
         const uploadedUrls = [];
 
-        // Upload setiap media (image, audio, gif)
+        // Upload setiap image/gif
         for (const [id, attachment] of allowedAttachments) {
             console.log(` Uploading: ${attachment.name}`);
             const uploadedUrl = await uploadToFiveManage(attachment.url, attachment.name);
@@ -393,7 +400,7 @@ client.on('messageCreate', async (message) => {
 
         // Send pesan baru dengan format sederhana
         const uploadMessages = uploadedUrls.map(url => 
-            `**Media berhasil diupload** (${message.author.username})\nURL: ${url}`
+            `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
         ).join('\n\n');
         
         await message.channel.send(uploadMessages);
@@ -405,11 +412,11 @@ client.on('messageCreate', async (message) => {
         // Check if it's a disguised video file
         if (error.message && error.message.includes('Video files are not allowed')) {
             await message.delete();
-            await message.channel.send(`❌ **FILE VIDEO TERDETEKSI!** (${message.author.username})\nFile yang diupload adalah video meskipun ekstensinya bukan video.\nHanya boleh: Foto asli, GIF, dan Audio asli.`);
+            await message.channel.send(`❌ **FILE VIDEO TERDETEKSI!** (${message.author.username})\nFile yang diupload adalah video meskipun ekstensinya bukan video.\nHanya boleh: Foto asli dan GIF.`);
         } else {
             await message.react('❌');
             await message.reply({
-                content: '❌ Gagal upload media ke FiveManage. Cek console untuk detail error.',
+                content: '❌ Gagal upload image ke FiveManage. Cek console untuk detail error.',
                 allowedMentions: { repliedUser: false }
             });
         }
