@@ -10,6 +10,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
     ]
 });
 
@@ -319,8 +320,16 @@ client.on('messageCreate', async (message) => {
     // Ignore bot messages
     if (message.author.bot) return;
 
-    // Check channel ID jika diset
-    if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
+    // Check apakah message dari DM atau guild channel
+    const isDM = !message.guild;
+    
+    // Jika bukan DM, check channel ID jika diset
+    if (!isDM && CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
+    
+    // Log source
+    if (isDM) {
+        console.log(`📨 DM from ${message.author.username}`);
+    }
 
     // Filter attachments: HANYA IMAGE (termasuk GIF)
     // FiveManage hanya support /api/v2/image untuk gambar
@@ -366,8 +375,8 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // Check role whitelist jika diset
-    if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
+    // Check role whitelist jika diset (skip untuk DM)
+    if (!isDM && ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
         const member = message.member;
         
         // Check apakah user punya salah satu role yang diizinkan
@@ -402,12 +411,16 @@ client.on('messageCreate', async (message) => {
         // Remove processing reaction
         await message.reactions.removeAll();
 
-        // Hapus pesan original dari user
-        await message.delete();
+        // Hapus pesan original dari user (skip di DM)
+        if (!isDM) {
+            await message.delete();
+        }
 
         // Send pesan baru dengan format sederhana
         const uploadMessages = uploadedUrls.map(url => 
-            `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
+            isDM 
+                ? `✅ **Image berhasil diupload**\nURL: ${url}`
+                : `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
         ).join('\n\n');
         
         await message.channel.send(uploadMessages);
