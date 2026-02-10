@@ -25,6 +25,11 @@ const ALLOWED_ROLES = process.env.ALLOWED_ROLES
     ? process.env.ALLOWED_ROLES.split(',').map(id => id.trim())
     : null;
 
+// DM Whitelist User IDs configuration
+const DM_WHITELIST = process.env.DM_WHITELIST 
+    ? process.env.DM_WHITELIST.split(',').map(id => id.trim())
+    : [];
+
 // Secondary API configuration
 const SECONDARY_TOKEN = process.env.SECONDARY_TOKEN;
 const SECONDARY_ENDPOINT = process.env.SECONDARY_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
@@ -323,13 +328,113 @@ client.on('messageCreate', async (message) => {
     // Check apakah message dari DM atau guild channel
     const isDM = !message.guild;
     
-    // Jika bukan DM, check channel ID jika diset
-    if (!isDM && CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
-    
-    // Log source
+    // === HANDLE DM MESSAGES ===
     if (isDM) {
-        console.log(`📨 DM from ${message.author.username}`);
+        console.log(`📨 DM from ${message.author.username} (${message.author.id})`);
+        
+        // Check apakah user ada dalam DM whitelist
+        const isWhitelisted = DM_WHITELIST.includes(message.author.id);
+        
+        // Filter attachments untuk DM: image, gif, dan video (khusus DM)
+        const dmAttachments = message.attachments.filter(attachment => {
+            if (!attachment.contentType) return false;
+            const contentType = attachment.contentType.toLowerCase();
+            return contentType.startsWith('image/') || contentType.startsWith('video/');
+        });
+        
+        // Jika tidak ada attachment (text only)
+        if (dmAttachments.size === 0) {
+            await message.reply('DM bisa mengupload foto dan gif. tolong jangan SPAM');
+            return;
+        }
+        
+        // Ada attachment tapi tidak whitelist
+        if (!isWhitelisted) {
+            await message.reply(
+                '❌ **KAMU TIDAK DALAM DAFTAR WHITELIST**\n\n' +
+                'Jika kamu ingin masuk whitelist, kamu harus membayar **Rp 50.000 / $3 USD**\n' +
+                'Hubungi: **@inipanekuk**'
+            );
+            return;
+        }
+        
+        // Whitelist user - Check file size (max 10MB)
+        for (const [id, attachment] of dmAttachments) {
+            const fileSizeMB = attachment.size / (1024 * 1024);
+            if (fileSizeMB > 10) {
+                await message.reply(`❌ File **${attachment.name}** terlalu besar (${fileSizeMB.toFixed(2)} MB). Maksimal 10MB per file.`);
+                return;
+            }
+        }
+        
+        // Process upload untuk whitelist user
+        await message.react('⏳');
+        
+        try {
+            const uploadedUrls = [];
+            
+            for (const [id, attachment] of dmAttachments) {
+                console.log(`  Uploading DM: ${attachment.name}`);
+                
+                // Untuk video, gunakan endpoint /video
+                const isVideo = attachment.contentType.toLowerCase().startsWith('video/');
+                let endpoint = FIVEMANAGE_ENDPOINT;
+                if (isVideo) {
+                    endpoint = FIVEMANAGE_ENDPOINT.replace('/image', '/video');
+                }
+                
+                // Download file
+                const response = await axios.get(attachment.url, {
+                    responseType: 'arraybuffer',
+                    timeout: 30000
+                });
+                
+                // Upload ke FiveManage (no compression untuk DM)
+                const formData = new FormData();
+                formData.append('file', response.data, attachment.name);
+                formData.append('metadata', JSON.stringify({
+                    name: attachment.name,
+                    exemptFromRetention: true
+                }));
+                
+                const uploadResponse = await axios.post(endpoint, formData, {
+                    headers: {
+                        ...formData.getHeaders(),
+                        'Authorization': FIVEMANAGE_TOKEN
+                    },
+                    timeout: 120000,
+                    maxBodyLength: Infinity,
+                    maxContentLength: Infinity
+                });
+                
+                if (uploadResponse.data.status === 'ok' && uploadResponse.data.data?.url) {
+                    uploadedUrls.push(uploadResponse.data.data.url);
+                    console.log(`  Uploaded: ${uploadResponse.data.data.url}`);
+                }
+            }
+            
+            await message.reactions.removeAll();
+            
+            // Reply dengan hasil upload
+            const uploadMessages = uploadedUrls.map(url => 
+                `✅ **MEDIA BERHASIL TERUPLOAD**\nURL: ${url}`
+            ).join('\n\n');
+            
+            await message.reply(uploadMessages);
+            
+        } catch (error) {
+            console.error('DM Upload Error:', error);
+            await message.reactions.removeAll();
+            await message.react('❌');
+            await message.reply('❌ Gagal upload media ke FiveManage.');
+        }
+        
+        return; // Stop processing untuk DM
     }
+    
+    // === HANDLE GUILD CHANNEL MESSAGES ===
+    // Jika bukan DM, check channel ID jika diset
+    if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
 
     // Filter attachments: HANYA IMAGE (termasuk GIF)
     // FiveManage hanya support /api/v2/image untuk gambar
@@ -411,16 +516,12 @@ client.on('messageCreate', async (message) => {
         // Remove processing reaction
         await message.reactions.removeAll();
 
-        // Hapus pesan original dari user (skip di DM)
-        if (!isDM) {
-            await message.delete();
-        }
+        // Hapus pesan original dari user
+        await message.delete();
 
         // Send pesan baru dengan format sederhana
         const uploadMessages = uploadedUrls.map(url => 
-            isDM 
-                ? `✅ **Image berhasil diupload**\nURL: ${url}`
-                : `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
+            `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
         ).join('\n\n');
         
         await message.channel.send(uploadMessages);
