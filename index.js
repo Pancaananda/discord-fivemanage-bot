@@ -212,23 +212,10 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
             if (fileType === 'video') {
                 throw new Error('Video files are not allowed (detected by file signature)');
             }
-            
-            // Pilih endpoint berdasarkan tipe file
-            // Audio → /api/v2/video, Image → /api/v2/image
-            let targetEndpoint = apiEndpoint;
-            if (fileType === 'audio') {
-                targetEndpoint = apiEndpoint.replace('/image', '/video');
-                console.log(` Using video endpoint for audio: ${targetEndpoint}`);
-            }
 
-            // Compress gambar sebelum upload (skip untuk audio)
-            let processedFile = response.data;
-            if (fileType === 'image') {
-                console.log(` Compressing ${fileName}...`);
-                processedFile = await compressImage(response.data, fileName);
-            } else {
-                console.log(` Skipping compression for audio file`);
-            }
+            // Compress gambar sebelum upload
+            console.log(` Compressing ${fileName}...`);
+            const processedFile = await compressImage(response.data, fileName);
 
             // Check ukuran file setelah kompresi (FiveManage limit biasanya 10MB)
             const fileSizeMB = processedFile.length / (1024 * 1024);
@@ -249,7 +236,7 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
 
             // Upload ke FiveManage dengan timeout lebih panjang
             const uploadResponse = await axios.post(
-                targetEndpoint,
+                apiEndpoint,
                 formData,
                 {
                     headers: {
@@ -328,29 +315,37 @@ client.on('messageCreate', async (message) => {
     // Check channel ID jika diset
     if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
 
-    // Filter attachments: IMAGE dan AUDIO (GIF termasuk image)
-    // FiveManage: image → /api/v2/image, audio → /api/v2/video
+    // Filter attachments: HANYA IMAGE (termasuk GIF)
+    // FiveManage hanya support /api/v2/image untuk gambar
     const allowedAttachments = message.attachments.filter(attachment => {
         if (!attachment.contentType) return false;
         
         const contentType = attachment.contentType.toLowerCase();
         
-        // Allow: image (termasuk gif) dan audio
-        const isImage = contentType.startsWith('image/');
-        const isAudio = contentType.startsWith('audio/');
-        
-        return isImage || isAudio;
+        // Allow: HANYA image (termasuk gif)
+        return contentType.startsWith('image/');
     });
 
-    // Check apakah ada video yang di-upload
+    // Check apakah ada video atau audio yang di-upload
     const hasVideo = message.attachments.some(attachment =>
         attachment.contentType && attachment.contentType.toLowerCase().startsWith('video/')
+    );
+    
+    const hasAudio = message.attachments.some(attachment =>
+        attachment.contentType && attachment.contentType.toLowerCase().startsWith('audio/')
     );
     
     // Tolak video
     if (hasVideo) {
         await message.delete();
-        await message.channel.send(`❌ **VIDEO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nHanya boleh: Foto, GIF, dan Audio`);
+        await message.channel.send(`❌ **VIDEO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nHanya boleh: Foto dan GIF`);
+        return;
+    }
+    
+    // Tolak audio (FiveManage tidak punya endpoint untuk audio)
+    if (hasAudio) {
+        await message.delete();
+        await message.channel.send(`❌ **AUDIO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nFiveManage tidak support upload audio.\nHanya boleh: Foto dan GIF`);
         return;
     }
 
@@ -359,7 +354,7 @@ client.on('messageCreate', async (message) => {
         // Hapus message dan kasih warning
         await message.delete();
         await message.channel.send(
-            `**NO NO YA DISINI BUKAN TEMPAT CHAT HANYA BOLEH KASIH FOTO, GIF DAN AUDIO YA**\n(${message.author.username})`
+            `**NO NO YA DISINI BUKAN TEMPAT CHAT HANYA BOLEH KASIH FOTO DAN GIF YA**\n(${message.author.username})`
         );
         return;
     }
@@ -389,7 +384,7 @@ client.on('messageCreate', async (message) => {
     try {
         const uploadedUrls = [];
 
-        // Upload setiap media (image/audio/gif)
+        // Upload setiap image/gif
         for (const [id, attachment] of allowedAttachments) {
             console.log(` Uploading: ${attachment.name}`);
             const uploadedUrl = await uploadToFiveManage(attachment.url, attachment.name);
@@ -405,7 +400,7 @@ client.on('messageCreate', async (message) => {
 
         // Send pesan baru dengan format sederhana
         const uploadMessages = uploadedUrls.map(url => 
-            `**Media berhasil diupload** (${message.author.username})\nURL: ${url}`
+            `**Image berhasil diupload** (${message.author.username})\nURL: ${url}`
         ).join('\n\n');
         
         await message.channel.send(uploadMessages);
@@ -417,11 +412,11 @@ client.on('messageCreate', async (message) => {
         // Check if it's a disguised video file
         if (error.message && error.message.includes('Video files are not allowed')) {
             await message.delete();
-            await message.channel.send(`❌ **FILE VIDEO TERDETEKSI!** (${message.author.username})\nFile yang diupload adalah video meskipun ekstensinya bukan video.\nHanya boleh: Foto asli, GIF, dan Audio asli.`);
+            await message.channel.send(`❌ **FILE VIDEO TERDETEKSI!** (${message.author.username})\nFile yang diupload adalah video meskipun ekstensinya bukan video.\nHanya boleh: Foto asli dan GIF.`);
         } else {
             await message.react('❌');
             await message.reply({
-                content: '❌ Gagal upload media ke FiveManage. Cek console untuk detail error.',
+                content: '❌ Gagal upload image ke FiveManage. Cek console untuk detail error.',
                 allowedMentions: { repliedUser: false }
             });
         }
