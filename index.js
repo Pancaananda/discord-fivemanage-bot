@@ -71,6 +71,13 @@ async function compressImage(imageBuffer, fileName) {
     
     // Deteksi format gambar dari nama file
     const ext = fileName.toLowerCase().split('.').pop();
+    
+    // Skip compression untuk GIF (animated)
+    if (ext === 'gif') {
+        console.log(` Skipping compression for GIF (animated image)`);
+        return imageBuffer;
+    }
+    
     let compressedBuffer;
     
     try {
