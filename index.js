@@ -261,12 +261,42 @@ client.on('messageCreate', async (message) => {
     // Check channel ID jika diset
     if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
 
-    // Check apakah ada attachment gambar
-    const imageAttachments = message.attachments.filter(attachment =>
-        attachment.contentType && attachment.contentType.startsWith('image/')
-    );
+    // Filter attachments: image, audio, gif - TIDAK termasuk video
+    const allowedAttachments = message.attachments.filter(attachment => {
+        if (!attachment.contentType) return false;
+        
+        const contentType = attachment.contentType.toLowerCase();
+        
+        // Allow: image (termasuk gif), audio
+        const isImage = contentType.startsWith('image/');
+        const isAudio = contentType.startsWith('audio/');
+        
+        // Block: video
+        const isVideo = contentType.startsWith('video/');
+        
+        return (isImage || isAudio) && !isVideo;
+    });
 
-    if (imageAttachments.size === 0) return;
+    // Jika ada video, tolak
+    const hasVideo = message.attachments.some(attachment =>
+        attachment.contentType && attachment.contentType.toLowerCase().startsWith('video/')
+    );
+    
+    if (hasVideo) {
+        await message.delete();
+        await message.channel.send(`❌ **VIDEO TIDAK DIPERBOLEHKAN!** (${message.author.username})\nHanya boleh: Foto, GIF, dan Audio`);
+        return;
+    }
+
+    // Jika tidak ada attachment yang diizinkan (text only atau file lain)
+    if (allowedAttachments.size === 0) {
+        // Hapus message dan kasih warning
+        await message.delete();
+        await message.channel.send(
+            `**NO NO YA DISINI BUKAN TEMPAT CHAT HANYA BOLEH KASIH FOTO, GIF DAN AUDIO YA**\n(${message.author.username})`
+        );
+        return;
+    }
 
     // Check role whitelist jika diset
     if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
@@ -280,7 +310,7 @@ client.on('messageCreate', async (message) => {
         if (!hasAllowedRole) {
             await message.react('❌');
             await message.reply({
-                content: '❌ Anda tidak memiliki permission untuk upload gambar.',
+                content: '❌ Anda tidak memiliki permission untuk upload media.',
                 allowedMentions: { repliedUser: false }
             });
             return;
@@ -293,12 +323,12 @@ client.on('messageCreate', async (message) => {
     try {
         const uploadedUrls = [];
 
-        // Upload setiap gambar
-        for (const [id, attachment] of imageAttachments) {
-            console.log(`📤 Uploading: ${attachment.name}`);
+        // Upload setiap media (image, audio, gif)
+        for (const [id, attachment] of allowedAttachments) {
+            console.log(` Uploading: ${attachment.name}`);
             const uploadedUrl = await uploadToFiveManage(attachment.url, attachment.name);
             uploadedUrls.push(uploadedUrl);
-            console.log(`✅ Uploaded: ${uploadedUrl}`);
+            console.log(` Uploaded: ${uploadedUrl}`);
         }
 
         // Remove processing reaction
@@ -309,7 +339,7 @@ client.on('messageCreate', async (message) => {
 
         // Send pesan baru dengan format sederhana
         const uploadMessages = uploadedUrls.map(url => 
-            `**Gambar berhasil diupload** (${message.author.username})\nURL: ${url}`
+            `**Media berhasil diupload** (${message.author.username})\nURL: ${url}`
         ).join('\n\n');
         
         await message.channel.send(uploadMessages);
@@ -319,7 +349,7 @@ client.on('messageCreate', async (message) => {
         await message.reactions.removeAll();
         await message.react('❌');
         await message.reply({
-            content: '❌ Gagal upload gambar ke FiveManage. Cek console untuk detail error.',
+            content: '❌ Gagal upload media ke FiveManage. Cek console untuk detail error.',
             allowedMentions: { repliedUser: false }
         });
     }
