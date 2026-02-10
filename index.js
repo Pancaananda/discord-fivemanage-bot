@@ -19,6 +19,11 @@ const FIVEMANAGE_TOKEN = process.env.FIVEMANAGE_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID || null;
 const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
 
+// Whitelist Role configuration
+const ALLOWED_ROLES = process.env.ALLOWED_ROLES 
+    ? process.env.ALLOWED_ROLES.split(',').map(id => id.trim())
+    : null;
+
 // Secondary API configuration
 const SECONDARY_TOKEN = process.env.SECONDARY_TOKEN;
 const SECONDARY_ENDPOINT = process.env.SECONDARY_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
@@ -241,6 +246,11 @@ client.on('ready', () => {
     } else {
         console.log(`⚠️ No secondary API configured`);
     }
+    if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
+        console.log(`🔒 Role whitelist enabled (${ALLOWED_ROLES.length} roles allowed)`);
+    } else {
+        console.log(`🌐 No role restriction (all users can upload)`);
+    }
 });
 
 // Event: Message create
@@ -257,6 +267,25 @@ client.on('messageCreate', async (message) => {
     );
 
     if (imageAttachments.size === 0) return;
+
+    // Check role whitelist jika diset
+    if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
+        const member = message.member;
+        
+        // Check apakah user punya salah satu role yang diizinkan
+        const hasAllowedRole = member.roles.cache.some(role => 
+            ALLOWED_ROLES.includes(role.id)
+        );
+        
+        if (!hasAllowedRole) {
+            await message.react('❌');
+            await message.reply({
+                content: '❌ Anda tidak memiliki permission untuk upload gambar. Hubungi admin untuk mendapatkan role yang sesuai.',
+                allowedMentions: { repliedUser: false }
+            });
+            return;
+        }
+    }
 
     // React untuk menandakan sedang memproses
     await message.react('⏳');
