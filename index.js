@@ -3,6 +3,27 @@ const { Client, GatewayIntentBits, Partials, AttachmentBuilder } = require('disc
 const axios = require('axios');
 const FormData = require('form-data');
 const sharp = require('sharp');
+const http = require('http');
+
+// Simple HTTP server untuk Railway health check
+const PORT = process.env.PORT || 3000;
+const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            bot: client.user ? client.user.tag : 'starting',
+            uptime: process.uptime()
+        }));
+    } else {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Discord Bot is running!');
+    }
+});
+
+server.listen(PORT, () => {
+    console.log(`🌐 HTTP Server running on port ${PORT}`);
+});
 
 // Inisialisasi Discord client dengan Partials untuk DM
 const client = new Client({
