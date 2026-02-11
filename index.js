@@ -436,7 +436,8 @@ client.on('messageCreate', async (message) => {
                 }
             }
             
-            await message.reactions.removeAll();
+            // Skip removeAll() di DM - Discord API tidak support
+            // Reactions akan tetap ada di DM
             
             // Reply dengan hasil upload
             const uploadMessages = uploadedUrls.map(url => 
@@ -447,7 +448,7 @@ client.on('messageCreate', async (message) => {
             
         } catch (error) {
             console.error('DM Upload Error:', error);
-            await message.reactions.removeAll();
+            // Skip removeAll() di DM - Discord API tidak support
             await message.react('❌');
             await message.reply('❌ Gagal upload media ke FiveManage.');
         }
