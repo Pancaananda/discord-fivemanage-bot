@@ -1,16 +1,20 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, AttachmentBuilder } = require('discord.js');
 const axios = require('axios');
 const FormData = require('form-data');
 const sharp = require('sharp');
 
-// Inisialisasi Discord client
+// Inisialisasi Discord client dengan Partials untuk DM
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
+    ],
+    partials: [
+        Partials.Channel, // Required untuk DM channels
+        Partials.Message, // Required untuk DM messages
     ]
 });
 
@@ -19,6 +23,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const FIVEMANAGE_TOKEN = process.env.FIVEMANAGE_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID || null;
 const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
+const FIVEMANAGE_VIDEO_ENDPOINT = process.env.FIVEMANAGE_VIDEO_ENDPOINT || 'https://api.fivemanage.com/api/v2/video';
 
 // Whitelist Role configuration
 const ALLOWED_ROLES = process.env.ALLOWED_ROLES 
@@ -376,12 +381,9 @@ client.on('messageCreate', async (message) => {
             for (const [id, attachment] of dmAttachments) {
                 console.log(`  Uploading DM: ${attachment.name}`);
                 
-                // Untuk video, gunakan endpoint /video
+                // Untuk video, gunakan endpoint video
                 const isVideo = attachment.contentType.toLowerCase().startsWith('video/');
-                let endpoint = FIVEMANAGE_ENDPOINT;
-                if (isVideo) {
-                    endpoint = FIVEMANAGE_ENDPOINT.replace('/image', '/video');
-                }
+                const endpoint = isVideo ? FIVEMANAGE_VIDEO_ENDPOINT : FIVEMANAGE_ENDPOINT;
                 
                 // Download file
                 const response = await axios.get(attachment.url, {
