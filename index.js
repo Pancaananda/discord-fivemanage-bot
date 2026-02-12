@@ -64,40 +64,45 @@ const DM_WHITELIST = process.env.DM_WHITELIST
 // Secondary API configuration
 const SECONDARY_TOKEN = process.env.SECONDARY_TOKEN;
 const SECONDARY_ENDPOINT = process.env.SECONDARY_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
-const STORAGE_LIMIT_GB = parseFloat(process.env.STORAGE_LIMIT_GB || 10);
-const STORAGE_THRESHOLD_GB = parseFloat(process.env.STORAGE_THRESHOLD_GB || 9.8);
+const MAX_FAILURES = parseInt(process.env.MAX_FAILURES || 3); // Consecutive failures before switching
 
-// Storage tracking
-let currentStorageGB = 0;
+// Failure tracking for auto-fallback
+let primaryFailureCount = 0;
 let useSecondary = false;
+let lastFailureTime = null;
 
 // Validasi environment variables
 if (!DISCORD_TOKEN || !FIVEMANAGE_TOKEN) {
-    console.error(' Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
+    console.error('❌ Error: DISCORD_TOKEN dan FIVEMANAGE_TOKEN harus diisi di file .env');
     process.exit(1);
 }
 
-// Fungsi check storage usage FiveManage
-async function checkStorageUsage(token) {
-    try {
-        // FiveManage API untuk cek storage (jika ada endpoint-nya)
-        // Karena belum ada official endpoint, kita track secara manual
-        return currentStorageGB;
-    } catch (error) {
-        console.error(' Error checking storage:', error.message);
-        return currentStorageGB;
+// Fungsi untuk track failures dan auto-switch API
+function handleUploadSuccess() {
+    // Reset failure counter on success
+    if (primaryFailureCount > 0) {
+        console.log(`✅ Upload success! Resetting failure counter (was: ${primaryFailureCount})`);
+    }
+    primaryFailureCount = 0;
+    
+    // Try switching back to primary after success if using secondary
+    if (useSecondary) {
+        console.log(`🔄 Switching back to Primary API after successful upload`);
+        useSecondary = false;
     }
 }
 
-// Fungsi untuk track file size yang diupload
-function trackUploadSize(fileSizeMB) {
-    currentStorageGB += fileSizeMB / 1024;
-    console.log(`📊 Total storage used: ${currentStorageGB.toFixed(2)} GB / ${STORAGE_LIMIT_GB} GB`);
+function handleUploadFailure() {
+    primaryFailureCount++;
+    lastFailureTime = Date.now();
     
-    // Auto-switch ke secondary jika hampir penuh
-    if (currentStorageGB >= STORAGE_THRESHOLD_GB && !useSecondary && SECONDARY_TOKEN) {
-        console.log(` Storage threshold reached! Switching to secondary API...`);
+    console.log(`❌ Primary API failure count: ${primaryFailureCount}/${MAX_FAILURES}`);
+    
+    // Switch to secondary after MAX_FAILURES consecutive failures
+    if (!useSecondary && primaryFailureCount >= MAX_FAILURES && SECONDARY_TOKEN) {
+        console.log(`⚠️ Primary API failed ${MAX_FAILURES} times! Switching to Secondary API...`);
         useSecondary = true;
+        primaryFailureCount = 0; // Reset counter
     }
 }
 
@@ -295,8 +300,8 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
 
             // Response format: { data: { id, url }, status: "ok" }
             if (uploadResponse.data.status === 'ok' && uploadResponse.data.data?.url) {
-                // Track storage usage
-                trackUploadSize(fileSizeMB);
+                // Track success and reset failure counter
+                handleUploadSuccess();
                 
                 console.log(`✅ Uploaded to ${apiLabel} API: ${uploadResponse.data.data.url}`);
                 return uploadResponse.data.data.url;
@@ -322,8 +327,10 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
                 const waitTime = attempt * 2000; // 2s, 4s, 6s...
                 console.log(`Waiting ${waitTime/1000}s before retry...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
-            } else {
-                throw error; // Throw di attempt terakhir
+            } else {                // Track failure on last attempt if using primary API
+                if (!useSecondary) {
+                    handleUploadFailure();
+                }                throw error; // Throw di attempt terakhir
             }
         }
     }
@@ -341,10 +348,8 @@ client.on('ready', () => {
         console.log('📺 Monitoring: ALL CHANNELS in all servers');
     }
     
-    console.log(`💾 Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
-    
     if (SECONDARY_TOKEN) {
-        console.log(`🔄 Secondary API configured (auto-switch at threshold)`);
+        console.log(`🔄 Secondary API configured (auto-switch after ${MAX_FAILURES} failures)`);
     } else {
         console.log(`⚠️  No secondary API configured`);
     }
