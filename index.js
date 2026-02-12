@@ -42,11 +42,16 @@ const client = new Client({
 // Konfigurasi
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const FIVEMANAGE_TOKEN = process.env.FIVEMANAGE_TOKEN;
-const CHANNEL_ID = process.env.CHANNEL_ID || null;
+
+// Multi-Channel Support: Comma-separated channel IDs
+const CHANNEL_IDS = process.env.CHANNEL_ID 
+    ? process.env.CHANNEL_ID.split(',').map(id => id.trim())
+    : null;
+
 const FIVEMANAGE_ENDPOINT = process.env.FIVEMANAGE_ENDPOINT || 'https://api.fivemanage.com/api/v2/image';
 const FIVEMANAGE_VIDEO_ENDPOINT = process.env.FIVEMANAGE_VIDEO_ENDPOINT || 'https://api.fivemanage.com/api/v2/video';
 
-// Whitelist Role configuration
+// Whitelist Role configuration: Comma-separated role IDs (works across all servers)
 const ALLOWED_ROLES = process.env.ALLOWED_ROLES 
     ? process.env.ALLOWED_ROLES.split(',').map(id => id.trim())
     : null;
@@ -326,23 +331,28 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
 
 // Event: Bot ready
 client.on('ready', () => {
-    console.log(' Bot siap!');
+    console.log('🚀 Bot siap!');
     console.log(`Logged in as ${client.user.tag}`);
-    if (CHANNEL_ID) {
-        console.log(` Monitoring channel ID: ${CHANNEL_ID}`);
+    
+    if (CHANNEL_IDS && CHANNEL_IDS.length > 0) {
+        console.log(`📺 Monitoring ${CHANNEL_IDS.length} channel(s):`);
+        CHANNEL_IDS.forEach(id => console.log(`   - ${id}`));
     } else {
-        console.log('Monitoring semua channel');
+        console.log('📺 Monitoring: ALL CHANNELS in all servers');
     }
-    console.log(` Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
+    
+    console.log(`💾 Storage threshold: ${STORAGE_THRESHOLD_GB} GB / ${STORAGE_LIMIT_GB} GB`);
+    
     if (SECONDARY_TOKEN) {
-        console.log(`Secondary API configured (will auto-switch at ${STORAGE_THRESHOLD_GB} GB)`);
+        console.log(`🔄 Secondary API configured (auto-switch at threshold)`);
     } else {
-        console.log(` No secondary API configured`);
+        console.log(`⚠️  No secondary API configured`);
     }
+    
     if (ALLOWED_ROLES && ALLOWED_ROLES.length > 0) {
-        console.log(` Role whitelist enabled (${ALLOWED_ROLES.length} roles allowed)`);
+        console.log(`🔐 Role whitelist: ${ALLOWED_ROLES.length} role IDs (across all servers)`);
     } else {
-        console.log(` No role restriction (all users can upload)`);
+        console.log(`🌍 No role restrictions (all users allowed)`);
     }
 });
 
@@ -457,8 +467,10 @@ client.on('messageCreate', async (message) => {
     }
     
     // === HANDLE GUILD CHANNEL MESSAGES ===
-    // Jika bukan DM, check channel ID jika diset
-    if (CHANNEL_ID && message.channel.id !== CHANNEL_ID) return;
+    // Jika bukan DM, check apakah channel termasuk dalam whitelist (jika diset)
+    if (CHANNEL_IDS && CHANNEL_IDS.length > 0) {
+        if (!CHANNEL_IDS.includes(message.channel.id)) return;
+    }
 
     // Filter attachments: HANYA IMAGE (termasuk GIF)
     // FiveManage hanya support /api/v2/image untuk gambar
