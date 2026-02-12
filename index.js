@@ -315,22 +315,33 @@ async function uploadToFiveManage(fileUrl, fileName, retries = 3) {
             
             // Log error details
             if (error.response) {
-                console.error(`Error ${error.response.status}:`, error.response.data);
+                console.error(`❌ Error ${error.response.status}:`, error.response.data);
             } else if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
-                console.error(`Network error (${error.code}):`, error.message);
+                console.error(`❌ Network error (${error.code}):`, error.message);
             } else {
-                console.error('Error:', error.message);
+                console.error('❌ Error:', error.message);
             }
             
-            // Jika masih ada attempt, tunggu sebentar sebelum retry
+            // Track failure PER ATTEMPT (bukan per upload) untuk primary API
+            if (!useSecondary) {
+                handleUploadFailure();
+                
+                // Jika baru saja switch ke secondary, retry dengan secondary API
+                if (useSecondary && SECONDARY_TOKEN) {
+                    console.log(`🔄 Switched to Secondary API! Retrying upload immediately...`);
+                    // Recursive call - akan pakai secondary API karena flag sudah berubah
+                    return await uploadToFiveManage(fileUrl, fileName, retries);
+                }
+            }
+            
+            // Jika masih ada attempt dan belum switch, tunggu sebelum retry
             if (!isLastAttempt) {
                 const waitTime = attempt * 2000; // 2s, 4s, 6s...
-                console.log(`Waiting ${waitTime/1000}s before retry...`);
+                console.log(`⏳ Waiting ${waitTime/1000}s before retry...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
-            } else {                // Track failure on last attempt if using primary API
-                if (!useSecondary) {
-                    handleUploadFailure();
-                }                throw error; // Throw di attempt terakhir
+            } else {
+                // Throw error di attempt terakhir
+                throw error;
             }
         }
     }
